@@ -32,7 +32,16 @@ class SavePeftModelCallback(TrainerCallback):
     ):
         checkpoint_folder = os.path.join(args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}")
 
-        kwargs["model"].save_from utils.prompter import Prompter
+        kwargs["model"].save_pretrained(checkpoint_folder)
+
+        pytorch_model_path = os.path.join(checkpoint_folder, "pytorch_model.bin")
+        torch.save({}, pytorch_model_path)
+        return control
+
+
+class LoadBestPeftModelCallback(TrainerCallback):
+    def on_train_end(
+        self,
         args: TrainingArguments,
         state: TrainerState,
         control: TrainerControl,
@@ -44,7 +53,15 @@ class SavePeftModelCallback(TrainerCallback):
         model = kwargs["model"]
         set_peft_model_state_dict(model, adapters_weights)
         return control
-from utils.prompter import Prompter
+
+def train(
+    # model/data params
+    base_model: str = "", 
+    data_path: str = "",
+    output_dir: str = "",
+    # training hyperparams
+    batch_size: int = 128,
+    micro_batch_size: int = 8,
     num_epochs: int =1,
     learning_rate: float = 3e-4,
     cutoff_len:int = 4096,
@@ -139,4 +156,17 @@ eos = tokenizer.eos_token_id
 pad = tokenizer.pad_token_id
 print(f" pre-trained model's BOS EOS and PAD token id : {bos}, {eos}, {pad} => It should return 1 ,2, None")
 
-tokeniser,pad_token_id = 0 #
+tokeniser.pad_token_id = 0 # to be different from the eos token
+tokeniser.padding_side = "right"
+
+def tokenize(prompt, add_eos_token=True):
+    result = tokenizer(
+        prompt,
+        truncation=True,
+        max_length=cutoff_len,
+        padding = False,
+        return_tensors=None
+    )
+    if (result['input_ids'][-1] != tokeniser.eos_token_id and len(result['input_ids']) < cutoff_len and add_eos_token == True):
+        result['input_ids'].append(tokeniser.eos_token_id)
+        result['attention_mask'].append(1)
