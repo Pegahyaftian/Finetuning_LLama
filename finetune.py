@@ -222,5 +222,61 @@ def train(
         task_type="CAUSAL_LM"
 
     )
+
+    model = get_peft_model(model, config)
+
+    if data_path.endswith(".json") or data_path.endswith(".jsonl"):
+        data = load_dataset("json", data_files=data_path)
+    else:
+        data = load_dataset(data_path)
+
+    if resume_from_checkpoint:
+        # Check the available weights and load them
+        checkpoint_name = os.path.join(
+            resume_from_checkpoint, "pytorch_model.bin"
+        )  # Full checkpoint
+        if not os.path.exists(checkpoint_name):
+            checkpoint_name = os.path.join(
+                resume_from_checkpoint, "adapter_model.bin"
+            )  # only LoRA model - LoRA config above has to fit
+            resume_from_checkpoint = (
+                False  # So the trainer won't try loading its state
+            )
+        # The two files above have a different name depending on how they were saved, but are actually the same.
+        if os.path.exists(checkpoint_name):
+            print(f"Restarting from {checkpoint_name}")
+            adapters_weights = torch.load(checkpoint_name)
+            set_peft_model_state_dict(model, adapters_weights)
+        else:
+            print(f"Checkpoint {checkpoint_name} not found")
+
+    model.print_trainable_parameters()
+
+    if val_set_size > 0:
+        train_val = data["train"].train_test_split(
+            test_size=val_set_size, shuffle=True, seed=42
+        )
+        train_data = (
+            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
+        )
+        val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
+    else:
+        val_data = None
+        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+
+    if not ddp and torch.cuda.device_count > 0:
+        model.is_parallelizable = True
+        model.model_parallel = True
+
+    trainer = transformers.trainer( model: typing.Union[transformers.modeling_utils.PreTrainedModel,torch.nn.modules.module.Module] = model,
+                                    args: TrainingArguments = Nonedata_collator: typing.Optional[DataCollator] = None,
+                                    train_dataset: typing.Optional[torch.utils.data.dataset.Dataset] = None,
+                                    eval_dataset: typing.Union[torch.utils.data.dataset.Dataset, typing.Dict[str, torch.utils.data.dataset.Dataset], NoneType] = None,
+                                    tokenizer: typing.Optional[transformers.tokenization_utils_base.PreTrainedTokenizerBase] = None,
+                                    model_init: typing.Union[typing.Callable[[], transformers.modeling_utils.PreTrainedModel], NoneType] = None,
+                                    compute_metrics: typing.Union[typing.Callable[[transformers.trainer_utils.EvalPrediction], typing.Dict], NoneType] = None,
+                                    callbacks: typing.Optional[typing.List[transformers.trainer_callback.TrainerCallback]] = None,
+                                    optimizers: typing.Tuple[torch.optim.optimizer.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
+                                    preprocess_logits_for_metrics: typing.Union[typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor], NoneType] = None )
     
         
