@@ -302,6 +302,17 @@ def train(
     if torch.__version__ >= "2" and sys.platform != "win32":
         model = torch.compile(model)
     
+    trainer.train(resume_from_checkpoint=)
+    model.save_pretrained(output_dir)
+    pytorch_model_path = os.path.join(output_dir, "pytorch_model.bin")
+    torch.save({}, pytorch_model_path)
+    tokenizer.save_pretrained(output_dir)
+
+
+if __name__ == "__main__":
+    torch.cuda.empty_cache() 
+    fire.Fire(train)
+    
 
 
     
