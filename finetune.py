@@ -268,15 +268,41 @@ def train(
         model.is_parallelizable = True
         model.model_parallel = True
 
-    trainer = transformers.trainer( model: typing.Union[transformers.modeling_utils.PreTrainedModel,torch.nn.modules.module.Module] = model,
-                                    args: TrainingArguments = Nonedata_collator: typing.Optional[DataCollator] = None,
-                                    train_dataset: typing.Optional[torch.utils.data.dataset.Dataset] = None,
-                                    eval_dataset: typing.Union[torch.utils.data.dataset.Dataset, typing.Dict[str, torch.utils.data.dataset.Dataset], NoneType] = None,
-                                    tokenizer: typing.Optional[transformers.tokenization_utils_base.PreTrainedTokenizerBase] = None,
-                                    model_init: typing.Union[typing.Callable[[], transformers.modeling_utils.PreTrainedModel], NoneType] = None,
-                                    compute_metrics: typing.Union[typing.Callable[[transformers.trainer_utils.EvalPrediction], typing.Dict], NoneType] = None,
-                                    callbacks: typing.Optional[typing.List[transformers.trainer_callback.TrainerCallback]] = None,
-                                    optimizers: typing.Tuple[torch.optim.optimizer.Optimizer, torch.optim.lr_scheduler.LambdaLR] = (None, None),
-                                    preprocess_logits_for_metrics: typing.Union[typing.Callable[[torch.Tensor, torch.Tensor], torch.Tensor], NoneType] = None )
+    trainer = transformers.trainer(model: typing.Union[transformers.modeling_utils.PreTrainedModel,torch.nn.modules.module.Module] = model,
+                                    args: TrainingArguments = (
+                                        per_device_train_batch_size =  micro_batch_size,
+                                        gradient_accumulation_steps=gradient_accumulation_steps,
+                                        learning_rate = learning_rate,
+                                        num_train_epochs = num_epochs,
+                                        warmup_steps = warmup_steps,
+                                        fp16 = True,
+                                        logging_steps = 1,
+                                        optim = "adamw_torch",
+                                        evaluation_strategy = "steps" if val_set_size>0 else "no",
+                                        save_strategy = "steps",
+                                        eval_steps = 200 if val_data>0 else None,
+                                        save_steps = 1000,
+                                        lr_scheduler_type = lr_scheduler,
+                                        output_dir = output_dir,
+                                        save_total_limit = 2,
+                                        load_best_model_at_end = True if val_set_size > 0 else False,
+                                        ddp_find_unused_parameters = False if ddp else None,
+                                        roup_by_length=group_by_length,
+                                        report_to="wandb" if use_wandb else None,
+                                        run_name=wandb_run_name if use_wandb else None),
+                                    train_dataset: typing.Optional[torch.utils.data.dataset.Dataset] = train_data,
+                                    eval_dataset: typing.Union[torch.utils.data.dataset.Dataset, typing.Dict[str, torch.utils.data.dataset.Dataset], NoneType] = val_data,
+                                    data_collator = transformers.DataCollatorForSeq2Seq(tokenizer=tokenizer, pad_to_multiple_of = 8,return_tensors = 'pt', padding = True),
+                            
+                                    
+
+    )
+    model.config.use_cache = False
+    #JIT compiling
+    if torch.__version__ >= "2" and sys.platform != "win32":
+        model = torch.compile(model)
+    
+
+
     
         
