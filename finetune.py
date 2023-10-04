@@ -30,7 +30,10 @@ class SavePeftModelCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        checkpoint_folder = os.path.join(args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}")
+    # PREFIX_CHECKPOINT_DIR = "checkpoint"
+    #state.global_step => During training, represents the number of update steps completed
+
+        checkpoint_folder = os.path.join(args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}") 
 
         kwargs["model"].save_pretrained(checkpoint_folder)
 
@@ -51,7 +54,10 @@ class LoadBestPeftModelCallback(TrainerCallback):
         best_model_path = os.path.join(state.best_model_checkpoint, "adapter_model.bin")
         adapters_weights = torch.load(best_model_path)
         model = kwargs["model"]
-        set_peft_model_state_dict(model, adapters_weights)
+        #get the state dict of the Peft model.
+        #Args model (['PeftModel]) : The Peft model. When using torch.nn.DistributedDataParallel, DeepSpeed or FSDP, the model should be the underlying model/unwrapped mode (i.e. model.module)
+        #Args state_dict: The state dict of the model, If not provided, the state dict of the passed model will be used. 
+        set_peft_model_state_dict(model = model, state_dict=adapters_weights)
         return control
 
 def train(
@@ -65,11 +71,13 @@ def train(
     num_epochs: int =1,
     learning_rate: float = 3e-4,
     cutoff_len:int = 4096,
-    val_set_size=int = 0,
+    val_set_size:int = 0,
     lr_scheduler: str = "cosine",
     warmup_steps: int =100,
 
     # lora hyperparams
+    # lora_r : dimension of the low_rank matrices
+    # lora_alpha : the scaling factor for the low-rank matrices
     lora_r :int =16,
     lora_alpha: int = 16,
     lora_dropout: float = 0.05,
@@ -78,9 +86,9 @@ def train(
     lora_target_modules: List[str] = ["gate_proj","down_proj","up_proj"],
 
     # llm hyperparams
-    train_on_input: bool = False, #mask out the pronp =input
+    train_on_inputs: bool = False, #mask out the promp =input
     add_eos_token: bool = False,
-    group_by_length: bool= False, #for fatser training, but stochasisity in loss
+    group_by_length: bool= False, #for fatser training, but stochasticity in loss
 
     # wandb params
     wandb_project: str = "",
@@ -119,54 +127,193 @@ def train(
             f"resume_from_checkpoint: {resume_from_checkpoint or False}\n"
         )
 
-assert(base_model), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
-gradient_accumulation_steps = batch_size // micro_batch_size
+    assert(base_model), "Please specify a --base_model, e.g. --base_model='huggyllama/llama-7b'"
+    gradient_accumulation_steps = batch_size // micro_batch_size
 
-prompter = Prompter(promp_template_name)
+    prompter = Prompter(promp_template_name)
 
-device_map = "auto"
-world_size = int(os.environ.get("WORLD_SIZE",1))
-ddp = world_size != 1
-if ddp:
-     device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
-     gradient_accumulation_steps = gradient_accumulation_steps // world_size
-     print("gradient_accumulation_steps: ", gradient_accumulation_steps)
-    
-#check if parameter passed or if set within environ
-use_wandb = len(wandb_project) > 0 or (
-    "WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0
-)
-
-# Overwrite if wandb param passed
-
-if len(wandb_project) > 0:
-        os.environ["WANDB_PROJECT"] = wandb_project
-if len(wandb_watch) > 0:
-        os.environ["WANDB_WATCH"] = wandb_watch
-if len(wandb_log_model) > 0:
-        os.environ["WANDB_LOG_MODEL"] = wandb_log_model
-
-#tokenizer
-tokenizer = LlamaTokenizer.from_pretrained(base_model)
-#quantizer model
-model = LlamaForCausalLM.from_pretrained(base_model, load_in_8bit=True, torch_dtype=torch.float16, device_map=device_map)
-
-bos = tokenizer.bos_token_id
-eos = tokenizer.eos_token_id
-pad = tokenizer.pad_token_id
-print(f" pre-trained model's BOS EOS and PAD token id : {bos}, {eos}, {pad} => It should return 1 ,2, None")
-
-tokeniser.pad_token_id = 0 # to be different from the eos token
-tokeniser.padding_side = "right"
-
-def tokenize(prompt, add_eos_token=True):
-    result = tokenizer(
-        prompt,
-        truncation=True,
-        max_length=cutoff_len,
-        padding = False,
-        return_tensors=None
+    device_map = "auto"
+    world_size = int(os.environ.get("WORLD_SIZE",1))
+    ddp = world_size != 1
+    if ddp:
+        device_map = {"": int(os.environ.get("LOCAL_RANK") or 0)}
+        gradient_accumulation_steps = gradient_accumulation_steps // world_size
+        print("gradient_accumulation_steps: ", gradient_accumulation_steps)
+        
+    #check if parameter passed or if set within environ
+    use_wandb = len(wandb_project) > 0 or (
+        "WANDB_PROJECT" in os.environ and len(os.environ["WANDB_PROJECT"]) > 0
     )
-    if (result['input_ids'][-1] != tokeniser.eos_token_id and len(result['input_ids']) < cutoff_len and add_eos_token == True):
-        result['input_ids'].append(tokeniser.eos_token_id)
-        result['attention_mask'].append(1)
+
+    # Overwrite if wandb param passed
+
+    if len(wandb_project) > 0:
+            os.environ["WANDB_PROJECT"] = wandb_project
+    if len(wandb_watch) > 0:
+            os.environ["WANDB_WATCH"] = wandb_watch
+    if len(wandb_log_model) > 0:
+            os.environ["WANDB_LOG_MODEL"] = wandb_log_model
+
+    #tokenizer
+    tokenizer = LlamaTokenizer.from_pretrained(base_model)
+    #quantizer model
+    model = LlamaForCausalLM.from_pretrained(base_model, load_in_8bit=True, torch_dtype=torch.float16, device_map=device_map)
+
+    bos = tokenizer.bos_token_id
+    eos = tokenizer.eos_token_id
+    pad = tokenizer.pad_token_id
+    print(f" pre-trained model's BOS EOS and PAD token id : {bos}, {eos}, {pad} => It should return 1 ,2, None")
+
+    tokenizer.pad_token_id = 0 # to be different from the eos token
+    tokenizer.padding_side = "right"
+
+    def tokenize(prompt, add_eos_token=True):
+        result = tokenizer(
+            prompt,
+            truncation=True,
+            max_length = cutoff_len,
+            padding = False,
+            return_tensors=None
+        )
+        if (
+            result['input_ids'][-1] != tokenizer.eos_token_id and 
+            len(result['input_ids']) < cutoff_len 
+            and add_eos_token == True
+            ):
+
+                result['input_ids'].append(tokenizer.eos_token_id)
+                result['attention_mask'].append(1)
+        
+        result['labels'] = result["input_ids"].copy()
+
+        return result
+
+    def generate_and_tokenize_prompt(data_point):
+        full_prompt = prompter.generate_prompt(
+            data_point["instruction"],
+            data_point["input"],
+            data_point["output"]
+        )
+
+        tokenized_full_prompt = tokenize(full_prompt)
+
+        if not train_on_inputs:
+            user_prompt = prompter.generate_prompt(data_point["instruction"], data_point["input"])
+
+            tokenised_user_prompt = tokenize(user_prompt, add_eos_token=add_eos_token)
+
+            user_prompt_len = len(tokenised_user_prompt) -1
+
+            if add_eos_token:
+                user_prompt_len -= 1
+            
+            tokenized_full_prompt['label'] = [-100] * user_prompt_len + tokenized_full_prompt["labels"][user_prompt_len:] 
+
+        return tokenized_full_prompt
+
+    model = prepare_model_for_int8_training(model)
+
+    config = LoraConfig(
+        r =lora_r,
+        lora_alpha = lora_alpha,
+        target_modules = lora_target_modules,
+        lora_dropout = lora_dropout,
+        bias = "none",
+        task_type="CAUSAL_LM"
+
+    )
+
+    model = get_peft_model(model, config)
+
+    if data_path.endswith(".json") or data_path.endswith(".jsonl"):
+        data = load_dataset("json", data_files=data_path)
+    else:
+        data = load_dataset(data_path)
+
+    if resume_from_checkpoint:
+        # Check the available weights and load them
+        checkpoint_name = os.path.join(
+            resume_from_checkpoint, "pytorch_model.bin"
+        )  # Full checkpoint
+        if not os.path.exists(checkpoint_name):
+            checkpoint_name = os.path.join(
+                resume_from_checkpoint, "adapter_model.bin"
+            )  # only LoRA model - LoRA config above has to fit
+            resume_from_checkpoint = (
+                False  # So the trainer won't try loading its state
+            )
+        # The two files above have a different name depending on how they were saved, but are actually the same.
+        if os.path.exists(checkpoint_name):
+            print(f"Restarting from {checkpoint_name}")
+            adapters_weights = torch.load(checkpoint_name)
+            set_peft_model_state_dict(model, adapters_weights)
+        else:
+            print(f"Checkpoint {checkpoint_name} not found")
+
+    model.print_trainable_parameters()
+
+    if val_set_size > 0:
+        train_val = data["train"].train_test_split(
+            test_size=val_set_size, shuffle=True, seed=42
+        )
+        train_data = (
+            train_val["train"].shuffle().map(generate_and_tokenize_prompt)
+        )
+        val_data = train_val["test"].shuffle().map(generate_and_tokenize_prompt)
+    else:
+        val_data = None
+        train_data = data["train"].shuffle().map(generate_and_tokenize_prompt)
+
+    if not ddp and torch.cuda.device_count > 0:
+        model.is_parallelizable = True
+        model.model_parallel = True
+
+    trainer = transformers.trainer(model: typing.Union[transformers.modeling_utils.PreTrainedModel,torch.nn.modules.module.Module] = model,
+                                    args: TrainingArguments = (
+                                        per_device_train_batch_size =  micro_batch_size,
+                                        gradient_accumulation_steps=gradient_accumulation_steps,
+                                        learning_rate = learning_rate,
+                                        num_train_epochs = num_epochs,
+                                        warmup_steps = warmup_steps,
+                                        fp16 = True,
+                                        logging_steps = 1,
+                                        optim = "adamw_torch",
+                                        evaluation_strategy = "steps" if val_set_size>0 else "no",
+                                        save_strategy = "steps",
+                                        eval_steps = 200 if val_data>0 else None,
+                                        save_steps = 1000,
+                                        lr_scheduler_type = lr_scheduler,
+                                        output_dir = output_dir,
+                                        save_total_limit = 2,
+                                        load_best_model_at_end = True if val_set_size > 0 else False,
+                                        ddp_find_unused_parameters = False if ddp else None,
+                                        roup_by_length=group_by_length,
+                                        report_to="wandb" if use_wandb else None,
+                                        run_name=wandb_run_name if use_wandb else None),
+                                    train_dataset: typing.Optional[torch.utils.data.dataset.Dataset] = train_data,
+                                    eval_dataset: typing.Union[torch.utils.data.dataset.Dataset, typing.Dict[str, torch.utils.data.dataset.Dataset], NoneType] = val_data,
+                                    data_collator = transformers.DataCollatorForSeq2Seq(tokenizer=tokenizer, pad_to_multiple_of = 8,return_tensors = 'pt', padding = True),
+                            
+                                    
+
+    )
+    model.config.use_cache = False
+    #JIT compiling
+    if torch.__version__ >= "2" and sys.platform != "win32":
+        model = torch.compile(model)
+    
+    trainer.train(resume_from_checkpoint=)
+    model.save_pretrained(output_dir)
+    pytorch_model_path = os.path.join(output_dir, "pytorch_model.bin")
+    torch.save({}, pytorch_model_path)
+    tokenizer.save_pretrained(output_dir)
+
+
+if __name__ == "__main__":
+    torch.cuda.empty_cache() 
+    fire.Fire(train)
+    
+
+
+    
+        
