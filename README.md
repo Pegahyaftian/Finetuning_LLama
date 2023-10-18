@@ -11,6 +11,30 @@ Run:
 sh finetune.sh
 ```
 
+To take advantage of model parallelism you can consider using accelerate library by running finetune.py:
+```
+python finetune.py \
+    --base_model meta-llama/Llama-2-70b-hf \
+    --data-path ./final_data.json \
+    --output_dir ./llama2-platypus-70b \
+    --batch_size 16 \
+    --micro_batch_size 1 \
+    --num_epochs 1 \
+    --learning_rate 0.0003 \
+    --cutoff_len 4096 \
+    --val_set_size 0 \
+    --lora_r 16 \
+    --lora_alpha 16 \
+    --lora_dropout 0.05 \
+    --lora_target_modules '[gate_proj, down_proj, up_proj]' \
+    --train_on_inputs False \
+    --add_eos_token False \
+    --group_by_length False \
+    --prompt_template_name alpaca \
+    --lr_scheduler 'cosine' \
+    --warmup_steps 100
+```
+
 
 ## Data refinement hints
 To improve the model performance, you can follow the process below:
