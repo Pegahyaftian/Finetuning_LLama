@@ -1,4 +1,4 @@
-<img src=https://github.com/Pegahyaftian/Finetuning_LLama/assets/61659078/4618b8ef-8e0d-4443-8be7-8367c217d76a width="200" height="200">
+<img src=https://github.com/Pegahyaftian/Finetuning_LLama/assets/61659078/4618b8ef-8e0d-4443-8be7-8367c217d76a width="400" height="400">
 
 
 # Finetuning LLama
