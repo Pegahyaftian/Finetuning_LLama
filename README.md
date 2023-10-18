@@ -1,4 +1,4 @@
-![Untitled Project](https://github.com/Pegahyaftian/Finetuning_LLama/assets/61659078/4618b8ef-8e0d-4443-8be7-8367c217d76a)
+![Untitled Project](https://github.com/Pegahyaftian/Finetuning_LLama/assets/61659078/4618b8ef-8e0d-4443-8be7-8367c217d76a =200x200)
 # Finetuning LLama
 
 The aim of this repository is to fine-tune LLama2 model using [LoRA](https://arxiv.org/abs/2106.09685) and [PEFT](https://github.com/huggingface/peft).
